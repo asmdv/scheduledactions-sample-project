@@ -26,7 +26,14 @@ namespace ExecuteStart
             TokenCredential cred = new DefaultAzureCredential();
 
             // Client: The Azure Resource Manager client used to interact with the Azure Resource Manager API
+
+            // Adding custom headers to the ARM client (optional)
+            //var options = new ArmClientOptions();
+            //options.AddPolicy(new SetHeaderPolicy(), HttpPipelinePosition.PerCall);
+            //ArmClient client = new(cred, subscriptionId, options);
+
             ArmClient client = new(cred);
+
             var subscriptionResource = HelperMethods.GetSubscriptionResource(client, subscriptionId);
             var resourceGroupResource = await subscriptionResource.GetResourceGroupAsync(resourceGroupName);
 
