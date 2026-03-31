@@ -423,5 +423,83 @@ namespace UtilityMethods
                 throw;
             }
         }
+
+        /// <summary>
+        /// This method details the happy path for executing a create flex operation in ScheduledActions.
+        /// It calls the ExecuteCreateFlex API, filters out invalid/blocked operations,
+        /// polls for operation status until all reach terminal state, and handles errors.
+        /// </summary>
+        /// <param name="completedOperations">Dictionary of completed operations to track</param>
+        /// <param name="executionParameterDetail">Execution parameters for the request</param>
+        /// <param name="subscriptionResource">Subscription resource with ComputeSchedule operations</param>
+        /// <param name="blockedOperationsException">Error codes representing blocked operations</param>
+        /// <param name="executeCreateFlexContent">The request content for the create flex operation</param>
+        /// <param name="location">Location of the virtual machines operation</param>
+        public static async Task<Dictionary<string, ResourceIdentifier>> ExecuteCreateFlexOperation(
+            Dictionary<string, ResourceOperationDetails> completedOperations,
+            ScheduledActionExecutionParameterDetail executionParameterDetail,
+            SubscriptionResource subscriptionResource,
+            HashSet<string> blockedOperationsException,
+            ExecuteCreateFlexContent executeCreateFlexContent,
+            string location)
+        {
+            var allCreatedVms = new Dictionary<string, ResourceIdentifier>();
+
+            var createOps = ModelReaderWriter.Write(executeCreateFlexContent, ModelReaderWriterOptions.Json);
+            Console.WriteLine($"Request body:\n{createOps}");
+
+            try
+            {
+                // Execute the create flex operation
+                CreateFlexResourceOperationResult? result = await subscriptionResource.VirtualMachinesExecuteCreateFlexAsync(location, executeCreateFlexContent);
+
+                /// <summary>
+                /// Each operationId corresponds to a virtual machine operation in ScheduledActions.
+                /// The method below excludes resources that have not been processed in ScheduledActions due to a number of reasons
+                /// like operation conflicts, virtual machines not being found in an Azure location etc
+                /// and returns only the valid operations that have passed validation checks to be polled.
+                /// </summary>
+                var validOps = HelperMethods.ExcludeResourcesNotProcessed(result.Results);
+                completedOperations.Clear();
+
+                if (validOps.Count > 0)
+                {
+                    allCreatedVms = await HelperMethods.PollOperationStatus([.. validOps.Keys], completedOperations, location, subscriptionResource);
+                }
+                else
+                {
+                    Console.WriteLine("No valid operations to poll");
+                }
+
+                return allCreatedVms;
+            }
+            catch (RequestFailedException ex)
+            {
+                /// <summary>
+                /// Request examples that could make a request fall into this catch block include:
+                /// VALIDATION ERRORS:
+                /// - No resourceids provided in request
+                /// - Over 100 resourceids provided in request
+                /// - RetryPolicy.RetryCount value > 7
+                /// - RetryPolicy.RetryWindowInMinutes value > 120
+                /// COMPUTESCHEDULE BLOCKING ERRORS:
+                /// - Scheduling Operations Blocked due to an ongoing outage in downstream services
+                /// - Non-Scheduling Operations Blocked, eg VirtualMachinesGetOperationStatus operations, due to an ongoing outage in downstream services
+                /// </summary>
+                Console.WriteLine($"Request failed with ErrorCode:{ex.ErrorCode} and ErrorMessage: {ex.Message}");
+
+                if (ex.ErrorCode != null && blockedOperationsException.Contains(ex.ErrorCode))
+                {
+                    /// Operation blocking on scheduling/non-scheduling actions can be due to scenarios like outages in downstream services.
+                    Console.WriteLine($"Operation Blocking is turned on, request may succeed later.");
+                }
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Request failed with Exception:{ex.Message}");
+                throw;
+            }
+        }
     }
 }

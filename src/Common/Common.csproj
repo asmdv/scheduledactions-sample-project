@@ -2,15 +2,15 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>UtilityMethods</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-	  <PackageReference Include="Azure.Identity" Version="1.16.0" />
-    <PackageReference Include="Azure.ResourceManager.ComputeSchedule" Version="1.1.0" />
+    <PackageReference Include="Azure.Identity" Version="1.19.0" />
+    <PackageReference Include="Azure.ResourceManager.ComputeSchedule" Version="1.2.0-alpha.20260331.1" />
   </ItemGroup>
 
 </Project>
