@@ -2,6 +2,8 @@ using Azure.Core;
 using Azure.Identity;
 using Azure.ResourceManager;
 using Azure.ResourceManager.ComputeSchedule.Models;
+using Azure.ResourceManager.Resources;
+using DotNetEnv;
 using UtilityMethods;
 
 namespace ExecuteCreateFlex
@@ -12,25 +14,48 @@ namespace ExecuteCreateFlex
         {
             var blockedOperationsException = new HashSet<string> { "SchedulingOperationsBlockedException", "NonSchedulingOperationsBlockedException" };
 
+            // Load .env file from the project directory
+            Env.Load();
+
             // Location: The location of the virtual machines
-            const string location = "eastus2euap";
+            string location = Env.GetString("AZURE_LOCATION");
 
             // SubscriptionId: The subscription id under which the virtual machines are located
-            const string subscriptionId = "1d04e8f1-ee04-4056-b0b2-718f5bb45b04";
+            string subscriptionId = Env.GetString("AZURE_SUBSCRIPTION_ID");
 
             // ResourceGroupName: The resource group name under which the virtual machines are located
-            const string resourceGroupName = "computeschedule-azcliext-resources";
+            string resourceGroupName = Env.GetString("AZURE_RESOURCE_GROUP");
 
-            // SubnetId: The resource ID of the subnet to use for the virtual machines
-            // Update this value to match a subnet that exists in your resource group
-            const string subnetId = $"/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/default-vnet/subnets/default-subnet";
+            // VNet and subnet names used to provision the network before VM creation
+            string vnetName = Env.GetString("AZURE_VNET_NAME");
+            string subnetName = Env.GetString("AZURE_SUBNET_NAME");
+
+            // VM prefix used for resource naming, and admin credentials for created VMs
+            string vmPrefix = Env.GetString("AZURE_VM_PREFIX");
+            string vmAdminUsername = Env.GetString("AZURE_VM_ADMIN_USERNAME");
+            string vmAdminPassword = Env.GetString("AZURE_VM_ADMIN_PASSWORD");
 
             Dictionary<string, ResourceOperationDetails> completedOperations = [];
 
             // Credential: The Azure credential used to authenticate the request
             TokenCredential cred = new DefaultAzureCredential();
 
-            // Client: The Azure Resource Manager client configured with a regional endpoint
+            // Standard client for general ARM operations (resource group, VNet)
+            ArmClient standardClient = new(cred);
+            var standardSubscriptionResource = HelperMethods.GetSubscriptionResource(standardClient, subscriptionId);
+            ResourceGroupResource resourceGroupResource = await standardSubscriptionResource.GetResourceGroupAsync(resourceGroupName);
+
+            /*
+             * Before creating a virtual machine, a virtual network and subnet must be created in the resource group.
+             * A separate client with the network API version pinned is used for VNet creation.
+             */
+            var vnetClientOptions = new ArmClientOptions();
+            vnetClientOptions.SetApiVersion(new ResourceType("Microsoft.Network/virtualNetworks"), "2025-03-01");
+            ArmClient vnetClient = new(cred, subscriptionId, vnetClientOptions);
+            var vnet = await HelperMethods.CreateVirtualNetwork(resourceGroupResource, subnetName, vnetName, location, vnetClient);
+            var subnet = HelperMethods.GetSubnetId(vnet);
+
+            // Regional client for ComputeSchedule operations
             // ComputeSchedule requires a location-specific ARM endpoint
             var options = new ArmClientOptions
             {
@@ -74,7 +99,7 @@ namespace ExecuteCreateFlex
             // Build the resource provisioning payload with flex properties
             var resourceConfig = new ResourceProvisionFlexPayload(1, flexProperties)
             {
-                ResourcePrefix = "sampleflex",
+                ResourcePrefix = vmPrefix,
             };
 
             resourceConfig.BaseProfile["resourcegroupName"] = BinaryData.FromString($"\"{resourceGroupName}\"");
@@ -120,7 +145,7 @@ namespace ExecuteCreateFlex
                                         name = "samplenic",
                                         properties = new
                                         {
-                                            subnet = new { id = subnetId },
+                                            subnet = new { id = subnet.ToString() },
                                             primary = true,
                                             applicationGatewayBackendAddressPools = Array.Empty<object>(),
                                             loadBalancerBackendAddressPools = Array.Empty<object>()
@@ -136,11 +161,11 @@ namespace ExecuteCreateFlex
 
             // Resource overrides: override certain properties of the base profile for each VM created
             var vmOverride = HelperMethods.GenerateResourceOverrideItem(
-                "sampleflexvm0",
+                $"{vmPrefix}vm0",
                 location,
                 "Standard_D2ads_v5",
-                "YourStr0ngP@ssword123!",
-                "testUserName");
+                vmAdminPassword,
+                vmAdminUsername);
             resourceConfig.ResourceOverrides.Add(vmOverride);
 
             // Build the ExecuteCreateFlex request

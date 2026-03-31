@@ -172,3 +172,7 @@ BuildLogs/**
 .ntvs_analysis.dat
 node_modules/
 
+
+# Environment variable files with secrets  never commit these
+.env
+!.env.example
