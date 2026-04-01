@@ -31,8 +31,7 @@ This project demonstrates how to use the Azure ComputeSchedule SDK to automate v
 - An existing resource group in Azure
 - Azure CLI installed and logged in (`az login`) — used by `DefaultAzureCredential`
 - NuGet feeds configured (see `src/NuGet.config`):
-  - `nuget.org` — public packages
-  - `computeschedule-private-sdk-feed` — private Azure DevOps feed hosting the alpha `Azure.ResourceManager.ComputeSchedule` package
+  - `nuget.org` — public packages (including `Unofficial.Azure.ResourceManager.ComputeSchedule`)
 
 ## Getting Started
 
@@ -53,15 +52,7 @@ az login
 
 `DefaultAzureCredential` will pick this up automatically.
 
-### 3. Configure the NuGet feed
-
-The alpha ComputeSchedule SDK is hosted on a private Azure DevOps feed. Authenticate with it before restoring packages:
-
-```bash
-dotnet nuget update source computeschedule-private-sdk-feed --username <your-alias> --password <your-PAT>
-```
-
-### 4. Set up environment variables
+### 3. Set up environment variables
 
 Each project that requires configuration ships with a `.env.example` file. Copy it to `.env` and fill in your values:
 
