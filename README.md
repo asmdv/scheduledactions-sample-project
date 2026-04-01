@@ -115,6 +115,5 @@ src/
 
 ## Notes
 
-- All ComputeSchedule API calls use a **location-specific ARM endpoint** (`https://{location}.management.azure.com`) as required by the service.
 - VNet and subnet creation use a **separate ARM client** with the `Microsoft.Network` API version pinned to `2025-03-01`.
 - The polling loop retries every 15 seconds with a 30-second initial delay and a 125-minute total timeout.
