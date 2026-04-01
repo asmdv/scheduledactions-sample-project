@@ -38,7 +38,7 @@ This project demonstrates how to use the Azure ComputeSchedule SDK to automate v
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/asmdv/scheduledactions-sample-project.git
+git clone https://github.com/NneOkeke/scheduledactions-sample-project.git
 cd scheduledactions-sample-project/src
 ```
 
