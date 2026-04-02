@@ -441,7 +441,9 @@ namespace UtilityMethods
             SubscriptionResource subscriptionResource,
             HashSet<string> blockedOperationsException,
             ExecuteCreateFlexContent executeCreateFlexContent,
-            string location)
+            string location,
+            bool renderPollingProgress = true,
+            Action<HelperMethods.FlexPollingProgress>? onPollingProgress = null)
         {
             var allCreatedVms = new Dictionary<string, ResourceIdentifier>();
             HelperMethods.FlexPollingSummary summary = new(
@@ -473,7 +475,9 @@ namespace UtilityMethods
                         completedOperations,
                         validOps,
                         location,
-                        subscriptionResource);
+                        subscriptionResource,
+                        renderPollingProgress,
+                        onPollingProgress);
 
                     allCreatedVms = succeededResources;
                     summary = pollSummary;

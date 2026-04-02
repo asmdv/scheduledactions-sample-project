@@ -14,6 +14,8 @@ namespace UtilityMethods
 {
     public static class HelperMethods
     {
+        private static readonly object s_consoleProgressLock = new();
+
         public sealed record FailedVmOperation(string OperationId, string ResourceId, string State, string ErrorCode, string ErrorDetails);
 
         public sealed record FlexPollingSummary(
@@ -23,6 +25,13 @@ namespace UtilityMethods
             int FailedCount,
             int CancelledCount,
             IReadOnlyList<FailedVmOperation> FailedOperations);
+
+        public sealed record FlexPollingProgress(
+            int ValidCount,
+            int CompletedCount,
+            int SucceededCount,
+            int FailedCount,
+            int CancelledCount);
 
         // Static JSON representation for create vm operations
 
@@ -402,7 +411,9 @@ namespace UtilityMethods
             Dictionary<string, ResourceOperationDetails> completedOps,
             Dictionary<string, ResourceIdentifier?> opIdsToResourceIds,
             string location,
-            SubscriptionResource resource)
+            SubscriptionResource resource,
+            bool renderProgress = true,
+            Action<FlexPollingProgress>? onProgress = null)
         {
             var stopwatch = Stopwatch.StartNew();
             await Task.Delay(TimeSpan.FromSeconds(s_initialWaitTimeBeforePollingInSeconds));
@@ -432,8 +443,18 @@ namespace UtilityMethods
                 var inProgressCount = opIdsFromOperationReq.Count - completedCount;
                 var elapsed = stopwatch.Elapsed;
 
-                var progressText = $"Polling progress [{elapsed:mm\\:ss}] (polling every {s_pollingIntervalInSeconds} seconds): {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).";
-                ConsoleProgressRenderer.RenderSingleLineProgress(progressText, ref lastProgressLength);
+                onProgress?.Invoke(new FlexPollingProgress(
+                    ValidCount: opIdsFromOperationReq.Count,
+                    CompletedCount: completedCount,
+                    SucceededCount: succeededCount,
+                    FailedCount: failedCount,
+                    CancelledCount: cancelledCount));
+
+                if (renderProgress)
+                {
+                    var progressText = $"Polling progress [{elapsed:mm\\:ss}] (polling every {s_pollingIntervalInSeconds} seconds): {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).";
+                    RenderSingleLineProgress(progressText, ref lastProgressLength);
+                }
 
                 if (completedCount >= opIdsFromOperationReq.Count)
                 {
@@ -455,9 +476,12 @@ namespace UtilityMethods
                     await Task.Delay(TimeSpan.FromSeconds(1), cts.Token);
 
                     var liveElapsed = stopwatch.Elapsed;
-                    var liveProgressText =
-                        $"Polling progress [{liveElapsed:mm\\:ss}] (polling every {s_pollingIntervalInSeconds} seconds): {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).";
-                    ConsoleProgressRenderer.RenderSingleLineProgress(liveProgressText, ref lastProgressLength);
+                    if (renderProgress)
+                    {
+                        var liveProgressText =
+                            $"Polling progress [{liveElapsed:mm\\:ss}] (polling every {s_pollingIntervalInSeconds} seconds): {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).";
+                        RenderSingleLineProgress(liveProgressText, ref lastProgressLength);
+                    }
                 }
 
                 if (cts.Token.IsCancellationRequested)
@@ -471,7 +495,10 @@ namespace UtilityMethods
             }
 
             stopwatch.Stop();
-            ConsoleProgressRenderer.CompleteSingleLineProgress(lastProgressLength);
+            if (renderProgress)
+            {
+                CompleteSingleLineProgress(lastProgressLength);
+            }
 
             var succeededResources = completedOps
                 .Where(kvp => kvp.Value.State == ScheduledActionOperationState.Succeeded)
@@ -507,6 +534,35 @@ namespace UtilityMethods
                 FailedOperations: failedOperations);
 
             return (succeededResources, summary);
+        }
+
+        private static void RenderSingleLineProgress(string message, ref int lastProgressLength)
+        {
+            lock (s_consoleProgressLock)
+            {
+                if (Console.IsOutputRedirected)
+                {
+                    Console.WriteLine(message);
+                    return;
+                }
+
+                var paddedMessage = message.PadRight(Math.Max(message.Length, lastProgressLength));
+                Console.Write($"\r{paddedMessage}");
+                lastProgressLength = paddedMessage.Length;
+            }
+        }
+
+        private static void CompleteSingleLineProgress(int lastProgressLength)
+        {
+            if (lastProgressLength <= 0 || Console.IsOutputRedirected)
+            {
+                return;
+            }
+
+            lock (s_consoleProgressLock)
+            {
+                Console.WriteLine();
+            }
         }
 
         /// <summary>

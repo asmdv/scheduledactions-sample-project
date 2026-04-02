@@ -134,7 +134,7 @@ internal static class ExecuteCreateFlexApiDemo
             }
         });
 
-        // Optional: per-resource override
+        // Per-resource override
         payload.ResourceOverrides.Add(new Dictionary<string, BinaryData>
         {
             ["name"] = BinaryData.FromString("\"demovm01\""),

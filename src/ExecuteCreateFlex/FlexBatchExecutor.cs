@@ -1,6 +1,7 @@
 using Azure;
 using Azure.ResourceManager.ComputeSchedule.Models;
 using Azure.ResourceManager.Resources;
+using System.Diagnostics;
 using UtilityMethods;
 
 namespace ExecuteCreateFlex;
@@ -25,6 +26,10 @@ internal static class FlexBatchExecutor
         int totalFailed = 0;
         int totalCancelled = 0;
         int batchRequestFailures = 0;
+        var batchProgress = new Dictionary<int, HelperMethods.FlexPollingProgress>();
+        var aggregateProgressLock = new object();
+        var aggregateStopwatch = Stopwatch.StartNew();
+        var aggregateProgressLength = 0;
 
         Console.WriteLine($"Submitting {totalRequestedVmCount} VMs as {batchSizes.Count} batch request(s) with max {FlexRequestBuilder.MaxParallelBatches} parallel batches.");
 
@@ -47,7 +52,27 @@ internal static class FlexBatchExecutor
                     scheduleSubscriptionResource,
                     blockedOperationErrors,
                     request,
-                    config.Location);
+                    config.Location,
+                    renderPollingProgress: false,
+                    onPollingProgress: progress =>
+                    {
+                        lock (aggregateProgressLock)
+                        {
+                            batchProgress[batchIndex] = progress;
+
+                            var knownValid = batchProgress.Values.Sum(p => p.ValidCount);
+                            var completed = batchProgress.Values.Sum(p => p.CompletedCount);
+                            var succeeded = batchProgress.Values.Sum(p => p.SucceededCount);
+                            var failed = batchProgress.Values.Sum(p => p.FailedCount);
+                            var cancelled = batchProgress.Values.Sum(p => p.CancelledCount);
+                            var inProgress = Math.Max(knownValid - completed, 0);
+                            var elapsed = aggregateStopwatch.Elapsed;
+
+                            var aggregateProgressText =
+                                $"Batch-demo polling [{elapsed:mm\\:ss}] (polling every 15 seconds): {completed}/{totalRequestedVmCount} completed (known-valid: {knownValid}, succeeded: {succeeded}, failed: {failed}, cancelled: {cancelled}, in-progress: {inProgress}).";
+                            RenderAggregateProgressLine(aggregateProgressText, ref aggregateProgressLength);
+                        }
+                    });
 
                 lock (failedOperationsLock)
                 {
@@ -97,6 +122,7 @@ internal static class FlexBatchExecutor
         })).ToList();
 
         await Task.WhenAll(batchTasks);
+        CompleteAggregateProgressLine(aggregateProgressLength);
 
         Console.WriteLine(
             $"Combined final status: requested={totalRequestedVmCount}, valid={totalValid}, completed={totalCompleted}, succeeded={totalSucceeded}, failed={totalFailed}, cancelled={totalCancelled}, batchRequestFailures={batchRequestFailures}.");
@@ -113,6 +139,27 @@ internal static class FlexBatchExecutor
         else
         {
             Console.WriteLine("All batch requests completed without VM operation failures.");
+        }
+    }
+
+    private static void RenderAggregateProgressLine(string message, ref int lastLength)
+    {
+        if (Console.IsOutputRedirected)
+        {
+            Console.WriteLine(message);
+            return;
+        }
+
+        var paddedMessage = message.PadRight(Math.Max(message.Length, lastLength));
+        Console.Write($"\r{paddedMessage}");
+        lastLength = paddedMessage.Length;
+    }
+
+    private static void CompleteAggregateProgressLine(int lastLength)
+    {
+        if (lastLength > 0 && !Console.IsOutputRedirected)
+        {
+            Console.WriteLine();
         }
     }
 
