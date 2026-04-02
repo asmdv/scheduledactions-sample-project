@@ -4,6 +4,7 @@ using Azure.ResourceManager;
 using Azure.ResourceManager.ComputeSchedule;
 using Azure.ResourceManager.ComputeSchedule.Models;
 using Azure.ResourceManager.Resources;
+using System.Diagnostics;
 using System.ClientModel.Primitives;
 using System.Dynamic;
 using System.Text.Json;
@@ -148,6 +149,8 @@ namespace UtilityMethods
 
         // Timeout for polling operation status
         private static readonly int s_operationTimeoutInMinutes = 125;
+
+        private static readonly object s_consoleProgressLock = new();
 
         /// <summary>
         ///   Utility method to get the first subnet id from a virtual network  
@@ -403,6 +406,7 @@ namespace UtilityMethods
             string location,
             SubscriptionResource resource)
         {
+            var stopwatch = Stopwatch.StartNew();
             await Task.Delay(TimeSpan.FromSeconds(s_initialWaitTimeBeforePollingInSeconds));
 
             GetOperationStatusResult? response = await resource.GetVirtualMachineOperationStatusAsync(
@@ -410,6 +414,7 @@ namespace UtilityMethods
                 new GetOperationStatusContent(opIdsFromOperationReq, Guid.NewGuid().ToString()));
 
             using CancellationTokenSource cts = new(TimeSpan.FromMinutes(s_operationTimeoutInMinutes));
+            var lastProgressLength = 0;
 
             while (!cts.Token.IsCancellationRequested)
             {
@@ -427,8 +432,10 @@ namespace UtilityMethods
                 var cancelledCount = completedOps.Values.Count(op => op.State == ScheduledActionOperationState.Cancelled);
                 var completedCount = completedOps.Count;
                 var inProgressCount = opIdsFromOperationReq.Count - completedCount;
+                var elapsed = stopwatch.Elapsed;
 
-                Console.WriteLine($"Polling progress: {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).");
+                var progressText = $"Polling progress [{elapsed:mm\\:ss}]: {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).";
+                RenderSingleLineProgress(progressText, ref lastProgressLength);
 
                 if (completedCount >= opIdsFromOperationReq.Count)
                 {
@@ -445,12 +452,28 @@ namespace UtilityMethods
                     break;
                 }
 
+                for (var second = 0; second < s_pollingIntervalInSeconds && !cts.Token.IsCancellationRequested; second++)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1), cts.Token);
+
+                    var liveElapsed = stopwatch.Elapsed;
+                    var liveProgressText =
+                        $"Polling progress [{liveElapsed:mm\\:ss}]: {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).";
+                    RenderSingleLineProgress(liveProgressText, ref lastProgressLength);
+                }
+
+                if (cts.Token.IsCancellationRequested)
+                {
+                    break;
+                }
+
                 response = await resource.GetVirtualMachineOperationStatusAsync(
                     location,
                     new GetOperationStatusContent(incompleteOperations, Guid.NewGuid().ToString()));
-
-                await Task.Delay(TimeSpan.FromSeconds(s_pollingIntervalInSeconds), cts.Token);
             }
+
+            stopwatch.Stop();
+            CompleteSingleLineProgress(lastProgressLength);
 
             var succeededResources = completedOps
                 .Where(kvp => kvp.Value.State == ScheduledActionOperationState.Succeeded)
@@ -486,6 +509,35 @@ namespace UtilityMethods
                 FailedOperations: failedOperations);
 
             return (succeededResources, summary);
+        }
+
+        private static void RenderSingleLineProgress(string message, ref int lastProgressLength)
+        {
+            lock (s_consoleProgressLock)
+            {
+                if (Console.IsOutputRedirected)
+                {
+                    Console.WriteLine(message);
+                    return;
+                }
+
+                var paddedMessage = message.PadRight(Math.Max(message.Length, lastProgressLength));
+                Console.Write($"\r{paddedMessage}");
+                lastProgressLength = paddedMessage.Length;
+            }
+        }
+
+        private static void CompleteSingleLineProgress(int lastProgressLength)
+        {
+            if (lastProgressLength <= 0 || Console.IsOutputRedirected)
+            {
+                return;
+            }
+
+            lock (s_consoleProgressLock)
+            {
+                Console.WriteLine();
+            }
         }
 
         /// <summary>
