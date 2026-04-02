@@ -432,7 +432,7 @@ namespace UtilityMethods
                 var inProgressCount = opIdsFromOperationReq.Count - completedCount;
                 var elapsed = stopwatch.Elapsed;
 
-                var progressText = $"Polling progress [{elapsed:mm\\:ss}]: {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).";
+                var progressText = $"Polling progress [{elapsed:mm\\:ss}] (polling every {s_pollingIntervalInSeconds} seconds): {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).";
                 ConsoleProgressRenderer.RenderSingleLineProgress(progressText, ref lastProgressLength);
 
                 if (completedCount >= opIdsFromOperationReq.Count)
@@ -456,7 +456,7 @@ namespace UtilityMethods
 
                     var liveElapsed = stopwatch.Elapsed;
                     var liveProgressText =
-                        $"Polling progress [{liveElapsed:mm\\:ss}]: {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).";
+                        $"Polling progress [{liveElapsed:mm\\:ss}] (polling every {s_pollingIntervalInSeconds} seconds): {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).";
                     ConsoleProgressRenderer.RenderSingleLineProgress(liveProgressText, ref lastProgressLength);
                 }
 
