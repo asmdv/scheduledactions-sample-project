@@ -37,8 +37,7 @@ internal static class FlexRequestBuilder
             new[]
             {
                 new VmSizeProfile(name: "Standard_D2ads_v5", rank: 0),
-                new VmSizeProfile(name: "Standard_E2ads_v5", rank: 1),
-                new VmSizeProfile(name: "Standard_D2ds_v5", rank:  2),
+                new VmSizeProfile(name: "Standard_E4as_v5", rank: 1),
             },
             OsType.Windows,
             new PriorityProfile
@@ -90,7 +89,7 @@ internal static class FlexRequestBuilder
                     createOption = "FromImage",
                     caching = "ReadWrite",
                     managedDisk = new { storageAccountType = "Standard_LRS" },
-                    deleteOption = "Detach",
+                    deleteOption = "Delete",
                     diskSizeGB = 127
                 },
                 diskControllerType = "SCSI"

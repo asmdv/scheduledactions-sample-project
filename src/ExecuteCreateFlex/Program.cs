@@ -1,36 +1,61 @@
-using Azure.Identity;
-using UtilityMethods;
-
 namespace ExecuteCreateFlex;
 
 public static class Program
 {
-    private static readonly HashSet<string> s_blockedOperationErrors =
-        ["SchedulingOperationsBlockedException", "NonSchedulingOperationsBlockedException"];
-
     public static async Task Main(string[] args)
     {
-        // ---- Step 1: Load configuration from .env ----
-        var config = FlexCreateConfig.Load();
+        var resourceCountOverride = TryParseResourceCount(args);
+        var runBatchDemo = args.Contains("--batch-demo", StringComparer.OrdinalIgnoreCase)
+            || args.Contains("--batch-request-demo", StringComparer.OrdinalIgnoreCase);
+        var runApiDemo = args.Contains("--api-demo", StringComparer.OrdinalIgnoreCase);
 
-        // ---- Step 2: Provision network ----
-        var credential = new DefaultAzureCredential();
-        var standardClient = ArmClientFactory.CreateStandardClient(credential);
-        var subscriptionResource = HelperMethods.GetSubscriptionResource(standardClient, config.SubscriptionId);
-        var resourceGroup = await subscriptionResource.GetResourceGroupAsync(config.ResourceGroupName);
+        if (runBatchDemo && runApiDemo)
+        {
+            Console.WriteLine("Please choose only one demo mode: --api-demo or --batch-demo.");
+            return;
+        }
 
-        var vnetClient = ArmClientFactory.CreateVNetClient(credential, config.SubscriptionId);
-        var vnet = await HelperMethods.CreateVirtualNetwork(resourceGroup, config.SubnetName, config.VnetName, config.Location, vnetClient);
-        var subnetId = HelperMethods.GetSubnetId(vnet).ToString();
+        if (runBatchDemo)
+        {
+            await ExecuteCreateFlexBatchDemo.RunAsync(resourceCountOverride);
+            return;
+        }
 
-        // ---- Step 3: Execute batched ExecuteCreateFlex requests ----
-        var scheduleClient = ArmClientFactory.CreateScheduleClient(credential, config.SubscriptionId, config.Location);
-        var scheduleSubscriptionResource = HelperMethods.GetSubscriptionResource(scheduleClient, config.SubscriptionId);
-        await FlexBatchExecutor.ExecuteAsync(
-            config,
-            subnetId,
-            scheduleSubscriptionResource,
-            s_blockedOperationErrors);
+        if (!runApiDemo)
+        {
+            Console.WriteLine("Please choose a demo mode: --api-demo or --batch-demo.");
+            Console.WriteLine("Examples:");
+            Console.WriteLine("  dotnet run -- --api-demo --resource-count 5");
+            Console.WriteLine("  dotnet run -- --batch-demo --resource-count 1000");
+            return;
+        }
+
+        await ExecuteCreateFlexApiDemo.RunAsync(resourceCountOverride);
+    }
+
+    private static int? TryParseResourceCount(string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (!string.Equals(args[i], "--resource-count", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (i + 1 >= args.Length)
+            {
+                throw new ArgumentException("Missing value for --resource-count");
+            }
+
+            if (!int.TryParse(args[i + 1], out var parsedValue) || parsedValue <= 0)
+            {
+                throw new ArgumentException("--resource-count must be a positive integer");
+            }
+
+            return parsedValue;
+        }
+
+        return null;
     }
 }
 

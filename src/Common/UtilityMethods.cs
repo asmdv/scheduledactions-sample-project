@@ -574,7 +574,7 @@ namespace UtilityMethods
                             {
                                 lun = 0,
                                 createOption = "Attach",
-                                deleteOption = "Detach",
+                                deleteOption = "Detach",// or "Delete" // when VM gets deleted disk can be detached and used later, but we can also do delete
                                 managedDisk = new
                                 {
                                     id = diskId,

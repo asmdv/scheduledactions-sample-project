@@ -1,5 +1,3 @@
-using DotNetEnv;
-
 namespace ExecuteCreateFlex;
 
 /// <summary>
@@ -21,16 +19,110 @@ internal record FlexCreateConfig(
     /// </summary>
     public static FlexCreateConfig Load()
     {
-        Env.Load();
+        var envValues = LoadEnvValues();
 
         return new FlexCreateConfig(
-            Location: Env.GetString("AZURE_LOCATION"),
-            SubscriptionId: Env.GetString("AZURE_SUBSCRIPTION_ID"),
-            ResourceGroupName: Env.GetString("AZURE_RESOURCE_GROUP"),
-            VnetName: Env.GetString("AZURE_VNET_NAME"),
-            SubnetName: Env.GetString("AZURE_SUBNET_NAME"),
-            VmPrefix: Env.GetString("AZURE_VM_PREFIX"),
-            VmAdminUsername: Env.GetString("AZURE_VM_ADMIN_USERNAME"),
-            VmAdminPassword: Env.GetString("AZURE_VM_ADMIN_PASSWORD"));
+            Location: GetRequiredValue("AZURE_LOCATION", envValues),
+            SubscriptionId: GetRequiredValue("AZURE_SUBSCRIPTION_ID", envValues),
+            ResourceGroupName: GetRequiredValue("AZURE_RESOURCE_GROUP", envValues),
+            VnetName: GetRequiredValue("AZURE_VNET_NAME", envValues),
+            SubnetName: GetRequiredValue("AZURE_SUBNET_NAME", envValues),
+            VmPrefix: GetRequiredValue("AZURE_VM_PREFIX", envValues),
+            VmAdminUsername: GetRequiredValue("AZURE_VM_ADMIN_USERNAME", envValues),
+            VmAdminPassword: GetRequiredValue("AZURE_VM_ADMIN_PASSWORD", envValues));
+    }
+
+    private static Dictionary<string, string> LoadEnvValues()
+    {
+        foreach (var envPath in GetCandidateEnvPaths())
+        {
+            if (!File.Exists(envPath))
+            {
+                continue;
+            }
+
+            var values = ParseEnvFile(envPath);
+            if (values.Count > 0)
+            {
+                return values;
+            }
+        }
+
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<string> GetCandidateEnvPaths()
+    {
+        var candidatePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var roots = new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory };
+
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            var current = Path.GetFullPath(root);
+            for (var i = 0; i < 10; i++)
+            {
+                candidatePaths.Add(Path.Combine(current, ".env"));
+                candidatePaths.Add(Path.Combine(current, "ExecuteCreateFlex", ".env"));
+                candidatePaths.Add(Path.Combine(current, "src", "ExecuteCreateFlex", ".env"));
+
+                var parent = Directory.GetParent(current);
+                if (parent == null)
+                {
+                    break;
+                }
+
+                current = parent.FullName;
+            }
+        }
+
+        return candidatePaths;
+    }
+
+    private static Dictionary<string, string> ParseEnvFile(string path)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawLine in File.ReadAllLines(path))
+        {
+            var line = rawLine.Trim();
+            if (string.IsNullOrWhiteSpace(line) || line.StartsWith('#'))
+            {
+                continue;
+            }
+
+            var separatorIndex = line.IndexOf('=');
+            if (separatorIndex <= 0)
+            {
+                continue;
+            }
+
+            var key = line[..separatorIndex].Trim();
+            var value = line[(separatorIndex + 1)..].Trim().Trim('"');
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                values[key] = value;
+            }
+        }
+
+        return values;
+    }
+
+    private static string GetRequiredValue(string key, IReadOnlyDictionary<string, string> envValues)
+    {
+        envValues.TryGetValue(key, out var valueFromFile);
+        var value = !string.IsNullOrWhiteSpace(valueFromFile)
+            ? valueFromFile
+            : Environment.GetEnvironmentVariable(key);
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidOperationException($"Missing required configuration '{key}'. Set it in .env or environment variables.");
+        }
+
+        return value;
     }
 }

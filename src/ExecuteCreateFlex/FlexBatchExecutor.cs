@@ -11,9 +11,11 @@ internal static class FlexBatchExecutor
         FlexCreateConfig config,
         string subnetId,
         SubscriptionResource scheduleSubscriptionResource,
-        HashSet<string> blockedOperationErrors)
+        HashSet<string> blockedOperationErrors,
+        int? totalRequestedVmCountOverride = null)
     {
-        var batchSizes = BuildBatchSizes(FlexRequestBuilder.TotalRequestedVmCount, FlexRequestBuilder.MaxResourceCountPerRequest);
+        var totalRequestedVmCount = totalRequestedVmCountOverride ?? FlexRequestBuilder.TotalRequestedVmCount;
+        var batchSizes = BuildBatchSizes(totalRequestedVmCount, FlexRequestBuilder.MaxResourceCountPerRequest);
 
         var failedOperations = new List<HelperMethods.FailedVmOperation>();
         var failedOperationsLock = new object();
@@ -24,7 +26,7 @@ internal static class FlexBatchExecutor
         int totalCancelled = 0;
         int batchRequestFailures = 0;
 
-        Console.WriteLine($"Submitting {FlexRequestBuilder.TotalRequestedVmCount} VMs as {batchSizes.Count} batch request(s) with max {FlexRequestBuilder.MaxParallelBatches} parallel batches.");
+        Console.WriteLine($"Submitting {totalRequestedVmCount} VMs as {batchSizes.Count} batch request(s) with max {FlexRequestBuilder.MaxParallelBatches} parallel batches.");
 
         using var concurrencyGate = new SemaphoreSlim(FlexRequestBuilder.MaxParallelBatches);
         var batchTasks = batchSizes.Select((batchSize, batchIndex) => Task.Run(async () =>
@@ -97,7 +99,7 @@ internal static class FlexBatchExecutor
         await Task.WhenAll(batchTasks);
 
         Console.WriteLine(
-            $"Combined final status: requested={FlexRequestBuilder.TotalRequestedVmCount}, valid={totalValid}, completed={totalCompleted}, succeeded={totalSucceeded}, failed={totalFailed}, cancelled={totalCancelled}, batchRequestFailures={batchRequestFailures}.");
+            $"Combined final status: requested={totalRequestedVmCount}, valid={totalValid}, completed={totalCompleted}, succeeded={totalSucceeded}, failed={totalFailed}, cancelled={totalCancelled}, batchRequestFailures={batchRequestFailures}.");
 
         if (failedOperations.Count > 0)
         {
