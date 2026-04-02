@@ -10,12 +10,16 @@ It focuses on **ComputeSchedule API usage** for `ExecuteCreateFlex` and intentio
 - How to poll operation status with `GetVirtualMachineOperationStatusAsync(...)`
 - How to summarize success/failure outcomes
 
+
+## Why flex create?
+TBD
+
 ## 2) Prerequisites
 
 - Azure subscription + resource group + VNet/subnet
 - Azure identity available to `DefaultAzureCredential`
 - Package:
-  - `Unofficial.Azure.ResourceManager.ComputeSchedule` `1.2.0-alpha.20260401.1`
+  - `Unofficial.Azure.ResourceManager.ComputeSchedule` `1.2.0-alpha.20260401.1` (caveat:)
 
 ## 3) Minimal API sequence (direct SDK usage)
 
@@ -38,7 +42,7 @@ TokenCredential credential = new DefaultAzureCredential();
 var armClient = new ArmClient(credential, subscriptionId);
 var subscription = armClient.GetSubscriptionResource(SubscriptionResource.CreateResourceIdentifier(subscriptionId));
 
-// 1) Build execution params
+// 1) Build execution params : REMOVE
 var executionParams = new ScheduledActionExecutionParameterDetail
 {
     RetryPolicy = new UserRequestRetryPolicy
@@ -52,11 +56,13 @@ var executionParams = new ScheduledActionExecutionParameterDetail
 var flexProperties = new FlexProperties(
     new[]
     {
-        new VmSizeProfile("Standard_D2ads_v5", 0), // primary VM size
-        new VmSizeProfile("Standard_E4as_v5", 1),  // backup VM size
+        // you can use the rank field for specifying sku priority
+        new VmSizeProfile(vmSize: "Standard_D2ads_v5", rank: 0), // primary VM size
+        new VmSizeProfile(vmSize: "Standard_E4as_v5", rank: 1),  // backup VM size
         // we can add more
     },
     OsType.Windows,
+    // explain this part fully
     new PriorityProfile
     {
         Type = PriorityType.Regular,
@@ -156,7 +162,7 @@ payload.ResourceOverrides.Add(new Dictionary<string, BinaryData>
     })
 });
 
-// 4) Build request wrapper
+// 4) Build request wrapper - don't show this part
 var request = new ExecuteCreateFlexContent(payload, executionParams)
 {
     CorrelationId = Guid.NewGuid().ToString()
@@ -166,7 +172,7 @@ var request = new ExecuteCreateFlexContent(payload, executionParams)
 CreateFlexResourceOperationResult result =
     await subscription.VirtualMachinesExecuteCreateFlexAsync(location, request);
 
-// 6) Poll operation status // just use a wrapper
+// 6) Poll operation status // just use a wrapper (unify polling)
 var opIds = result.Results
     .Where(r => r.ErrorCode == null && r.Operation.State != ScheduledActionOperationState.Blocked)
     .Select(r => r.Operation.OperationId)
