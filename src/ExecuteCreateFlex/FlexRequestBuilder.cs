@@ -8,6 +8,10 @@ namespace ExecuteCreateFlex;
 /// </summary>
 internal static class FlexRequestBuilder
 {
+    public const int TotalRequestedVmCount = 1;
+    public const int MaxResourceCountPerRequest = 100;
+    public const int MaxParallelBatches = 20;
+
     /// <summary>
     /// Returns the execution parameters with the retry policy for the operation.
     /// </summary>
@@ -49,16 +53,17 @@ internal static class FlexRequestBuilder
     /// </summary>
     /// <param name="config">Configuration values loaded from the .env file.</param>
     /// <param name="subnetId">The fully-qualified resource ID of the subnet to attach VMs to.</param>
-    public static ResourceProvisionFlexPayload BuildFlexPayload(FlexCreateConfig config, string subnetId)
+    public static ResourceProvisionFlexPayload BuildFlexPayload(FlexCreateConfig config, string subnetId, int resourceCount, int batchIndex)
     {
-        var computerName = BuildWindowsComputerName(config.VmPrefix);
+        var batchPrefix = BuildBatchPrefix(config.VmPrefix, batchIndex);
+        var computerName = BuildWindowsComputerName(batchPrefix);
 
-        var payload = new ResourceProvisionFlexPayload(resourceCount: 100, flexProperties: BuildFlexProperties())
+        var payload = new ResourceProvisionFlexPayload(resourceCount: resourceCount, flexProperties: BuildFlexProperties())
         {
-            ResourcePrefix = config.VmPrefix,
+            ResourcePrefix = batchPrefix,
         };
 
-        payload.BaseProfile["resourcegroupName"] = BinaryData.FromString($"\"{config.ResourceGroupName}\"");
+        payload.BaseProfile["resourceGroupName"] = BinaryData.FromString($"\"{config.ResourceGroupName}\"");
         payload.BaseProfile["computeApiVersion"] = BinaryData.FromString("\"2023-09-01\"");
         payload.BaseProfile["location"] = BinaryData.FromString($"\"{config.Location}\"");
         payload.BaseProfile["properties"] = BinaryData.FromObjectAsJson(new
@@ -108,7 +113,14 @@ internal static class FlexRequestBuilder
                                     name = "samplenic",
                                     properties = new
                                     {
-                                        subnet = new { id = subnetId },
+                                        subnet = new
+                                        {
+                                            id = subnetId,
+                                            properties = new
+                                            {
+                                                defaultOutboundAccess = false
+                                            }
+                                        },
                                         primary = true,
                                         applicationGatewayBackendAddressPools = Array.Empty<object>(),
                                         loadBalancerBackendAddressPools = Array.Empty<object>()
@@ -123,8 +135,9 @@ internal static class FlexRequestBuilder
         });
 
         // Per-VM override: name and admin credentials
+        var overrideName = BuildWindowsComputerName($"{batchPrefix}vm0");
         var vmOverride = HelperMethods.GenerateResourceOverrideItem(
-            $"{config.VmPrefix}vm0",
+            overrideName,
             config.Location,
             "Standard_D2ads_v5",
             config.VmAdminPassword,
@@ -177,5 +190,16 @@ internal static class FlexRequestBuilder
         }
 
         return candidate;
+    }
+
+    private static string BuildBatchPrefix(string vmPrefix, int batchIndex)
+    {
+        var sanitizedPrefix = new string(vmPrefix.Where(ch => char.IsLetterOrDigit(ch) || ch == '-').ToArray());
+        if (string.IsNullOrWhiteSpace(sanitizedPrefix))
+        {
+            sanitizedPrefix = "vm";
+        }
+
+        return $"{sanitizedPrefix}b{batchIndex}-";
     }
 }

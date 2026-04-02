@@ -435,7 +435,7 @@ namespace UtilityMethods
         /// <param name="blockedOperationsException">Error codes representing blocked operations</param>
         /// <param name="executeCreateFlexContent">The request content for the create flex operation</param>
         /// <param name="location">Location of the virtual machines operation</param>
-        public static async Task<Dictionary<string, ResourceIdentifier>> ExecuteCreateFlexOperation(
+        public static async Task<(Dictionary<string, ResourceIdentifier> CreatedResources, HelperMethods.FlexPollingSummary Summary)> ExecuteCreateFlexOperation(
             Dictionary<string, ResourceOperationDetails> completedOperations,
             ScheduledActionExecutionParameterDetail executionParameterDetail,
             SubscriptionResource subscriptionResource,
@@ -444,9 +444,13 @@ namespace UtilityMethods
             string location)
         {
             var allCreatedVms = new Dictionary<string, ResourceIdentifier>();
-
-            var createOps = ModelReaderWriter.Write(executeCreateFlexContent, ModelReaderWriterOptions.Json);
-            Console.WriteLine($"Request body:\n{createOps}");
+            HelperMethods.FlexPollingSummary summary = new(
+                ValidCount: 0,
+                CompletedCount: 0,
+                SucceededCount: 0,
+                FailedCount: 0,
+                CancelledCount: 0,
+                FailedOperations: []);
 
             try
             {
@@ -464,14 +468,35 @@ namespace UtilityMethods
 
                 if (validOps.Count > 0)
                 {
-                    allCreatedVms = await HelperMethods.PollOperationStatus([.. validOps.Keys], completedOperations, location, subscriptionResource);
+                    var (succeededResources, pollSummary) = await HelperMethods.PollOperationStatusForFlex(
+                        [.. validOps.Keys],
+                        completedOperations,
+                        validOps,
+                        location,
+                        subscriptionResource);
+
+                    allCreatedVms = succeededResources;
+                    summary = pollSummary;
+
+                    Console.WriteLine(
+                        $"Final status: valid={summary.ValidCount}, completed={summary.CompletedCount}, succeeded={summary.SucceededCount}, failed={summary.FailedCount}, cancelled={summary.CancelledCount}.");
+
+                    if (summary.FailedOperations.Count > 0)
+                    {
+                        Console.WriteLine("Failed VM operations:");
+                        foreach (var failedOperation in summary.FailedOperations)
+                        {
+                            Console.WriteLine(
+                                $"- resourceId={failedOperation.ResourceId}, state={failedOperation.State}, errorCode={failedOperation.ErrorCode}, errorDetails={failedOperation.ErrorDetails}");
+                        }
+                    }
                 }
                 else
                 {
                     Console.WriteLine("No valid operations to poll");
                 }
 
-                return allCreatedVms;
+                return (allCreatedVms, summary);
             }
             catch (RequestFailedException ex)
             {

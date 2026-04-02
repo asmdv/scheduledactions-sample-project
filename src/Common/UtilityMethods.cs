@@ -13,6 +13,16 @@ namespace UtilityMethods
 {
     public static class HelperMethods
     {
+        public sealed record FailedVmOperation(string OperationId, string ResourceId, string State, string ErrorCode, string ErrorDetails);
+
+        public sealed record FlexPollingSummary(
+            int ValidCount,
+            int CompletedCount,
+            int SucceededCount,
+            int FailedCount,
+            int CancelledCount,
+            IReadOnlyList<FailedVmOperation> FailedOperations);
+
         // Static JSON representation for create vm operations
 
         private static readonly string _ = @"
@@ -305,7 +315,6 @@ namespace UtilityMethods
                     incompleteOps.Remove(op);
                 }
             }
-            Console.WriteLine(string.Join(", ", incompleteOps));
             return incompleteOps;
         }
 
@@ -382,6 +391,101 @@ namespace UtilityMethods
             }
 
             return opIdsToResourceIds;
+        }
+
+        /// <summary>
+        /// Polls operation status for ExecuteCreateFlex and returns a compact summary suitable for bulk operations.
+        /// </summary>
+        public static async Task<(Dictionary<string, ResourceIdentifier> SucceededResources, FlexPollingSummary Summary)> PollOperationStatusForFlex(
+            HashSet<string> opIdsFromOperationReq,
+            Dictionary<string, ResourceOperationDetails> completedOps,
+            Dictionary<string, ResourceIdentifier?> opIdsToResourceIds,
+            string location,
+            SubscriptionResource resource)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(s_initialWaitTimeBeforePollingInSeconds));
+
+            GetOperationStatusResult? response = await resource.GetVirtualMachineOperationStatusAsync(
+                location,
+                new GetOperationStatusContent(opIdsFromOperationReq, Guid.NewGuid().ToString()));
+
+            using CancellationTokenSource cts = new(TimeSpan.FromMinutes(s_operationTimeoutInMinutes));
+
+            while (!cts.Token.IsCancellationRequested)
+            {
+                foreach (var operationResult in response.Results)
+                {
+                    var operation = operationResult.Operation;
+                    if (IsOperationTerminal(operation.State))
+                    {
+                        completedOps.TryAdd(operation.OperationId, operation);
+                    }
+                }
+
+                var succeededCount = completedOps.Values.Count(op => op.State == ScheduledActionOperationState.Succeeded);
+                var failedCount = completedOps.Values.Count(op => op.State == ScheduledActionOperationState.Failed);
+                var cancelledCount = completedOps.Values.Count(op => op.State == ScheduledActionOperationState.Cancelled);
+                var completedCount = completedOps.Count;
+                var inProgressCount = opIdsFromOperationReq.Count - completedCount;
+
+                Console.WriteLine($"Polling progress: {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).");
+
+                if (completedCount >= opIdsFromOperationReq.Count)
+                {
+                    break;
+                }
+
+                var incompleteOperations = ExcludeCompletedOperations(completedOps, opIdsFromOperationReq)
+                    .Where(opId => !string.IsNullOrWhiteSpace(opId))
+                    .Select(opId => opId!)
+                    .ToHashSet();
+
+                if (incompleteOperations.Count == 0)
+                {
+                    break;
+                }
+
+                response = await resource.GetVirtualMachineOperationStatusAsync(
+                    location,
+                    new GetOperationStatusContent(incompleteOperations, Guid.NewGuid().ToString()));
+
+                await Task.Delay(TimeSpan.FromSeconds(s_pollingIntervalInSeconds), cts.Token);
+            }
+
+            var succeededResources = completedOps
+                .Where(kvp => kvp.Value.State == ScheduledActionOperationState.Succeeded)
+                .Select(kvp =>
+                {
+                    opIdsToResourceIds.TryGetValue(kvp.Key, out var resourceId);
+                    return new { kvp.Key, ResourceId = resourceId };
+                })
+                .Where(item => item.ResourceId is not null)
+                .ToDictionary(item => item.Key, item => item.ResourceId!);
+
+            var failedOperations = completedOps
+                .Where(kvp => kvp.Value.State == ScheduledActionOperationState.Failed || kvp.Value.State == ScheduledActionOperationState.Cancelled)
+                .Select(kvp =>
+                {
+                    opIdsToResourceIds.TryGetValue(kvp.Key, out var resourceId);
+                    var error = kvp.Value.ResourceOperationError;
+                    return new FailedVmOperation(
+                        kvp.Key,
+                        resourceId?.ToString() ?? "unknown-resource",
+                        kvp.Value.State?.ToString() ?? "Unknown",
+                        error?.ErrorCode ?? "Unknown",
+                        error?.ErrorDetails ?? "No error details returned");
+                })
+                .ToList();
+
+            var summary = new FlexPollingSummary(
+                ValidCount: opIdsFromOperationReq.Count,
+                CompletedCount: completedOps.Count,
+                SucceededCount: completedOps.Values.Count(op => op.State == ScheduledActionOperationState.Succeeded),
+                FailedCount: completedOps.Values.Count(op => op.State == ScheduledActionOperationState.Failed),
+                CancelledCount: completedOps.Values.Count(op => op.State == ScheduledActionOperationState.Cancelled),
+                FailedOperations: failedOperations);
+
+            return (succeededResources, summary);
         }
 
         /// <summary>
