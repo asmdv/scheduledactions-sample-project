@@ -150,8 +150,6 @@ namespace UtilityMethods
         // Timeout for polling operation status
         private static readonly int s_operationTimeoutInMinutes = 125;
 
-        private static readonly object s_consoleProgressLock = new();
-
         /// <summary>
         ///   Utility method to get the first subnet id from a virtual network  
         /// </summary>
@@ -435,7 +433,7 @@ namespace UtilityMethods
                 var elapsed = stopwatch.Elapsed;
 
                 var progressText = $"Polling progress [{elapsed:mm\\:ss}]: {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).";
-                RenderSingleLineProgress(progressText, ref lastProgressLength);
+                ConsoleProgressRenderer.RenderSingleLineProgress(progressText, ref lastProgressLength);
 
                 if (completedCount >= opIdsFromOperationReq.Count)
                 {
@@ -459,7 +457,7 @@ namespace UtilityMethods
                     var liveElapsed = stopwatch.Elapsed;
                     var liveProgressText =
                         $"Polling progress [{liveElapsed:mm\\:ss}]: {completedCount}/{opIdsFromOperationReq.Count} completed (succeeded: {succeededCount}, failed: {failedCount}, cancelled: {cancelledCount}, in-progress: {Math.Max(inProgressCount, 0)}).";
-                    RenderSingleLineProgress(liveProgressText, ref lastProgressLength);
+                    ConsoleProgressRenderer.RenderSingleLineProgress(liveProgressText, ref lastProgressLength);
                 }
 
                 if (cts.Token.IsCancellationRequested)
@@ -473,7 +471,7 @@ namespace UtilityMethods
             }
 
             stopwatch.Stop();
-            CompleteSingleLineProgress(lastProgressLength);
+            ConsoleProgressRenderer.CompleteSingleLineProgress(lastProgressLength);
 
             var succeededResources = completedOps
                 .Where(kvp => kvp.Value.State == ScheduledActionOperationState.Succeeded)
@@ -509,35 +507,6 @@ namespace UtilityMethods
                 FailedOperations: failedOperations);
 
             return (succeededResources, summary);
-        }
-
-        private static void RenderSingleLineProgress(string message, ref int lastProgressLength)
-        {
-            lock (s_consoleProgressLock)
-            {
-                if (Console.IsOutputRedirected)
-                {
-                    Console.WriteLine(message);
-                    return;
-                }
-
-                var paddedMessage = message.PadRight(Math.Max(message.Length, lastProgressLength));
-                Console.Write($"\r{paddedMessage}");
-                lastProgressLength = paddedMessage.Length;
-            }
-        }
-
-        private static void CompleteSingleLineProgress(int lastProgressLength)
-        {
-            if (lastProgressLength <= 0 || Console.IsOutputRedirected)
-            {
-                return;
-            }
-
-            lock (s_consoleProgressLock)
-            {
-                Console.WriteLine();
-            }
         }
 
         /// <summary>
