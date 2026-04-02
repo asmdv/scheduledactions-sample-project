@@ -32,9 +32,9 @@ internal static class FlexRequestBuilder
         new(
             new[]
             {
-                new VmSizeProfile("Standard_D2ads_v5", 0),
-                new VmSizeProfile("Standard_E2ads_v5", 1),
-                new VmSizeProfile("Standard_D2ds_v5", 2),
+                new VmSizeProfile(name: "Standard_D2ads_v5", rank: 0),
+                new VmSizeProfile(name: "Standard_E2ads_v5", rank: 1),
+                new VmSizeProfile(name: "Standard_D2ds_v5", rank:  2),
             },
             OsType.Windows,
             new PriorityProfile
@@ -51,16 +51,25 @@ internal static class FlexRequestBuilder
     /// <param name="subnetId">The fully-qualified resource ID of the subnet to attach VMs to.</param>
     public static ResourceProvisionFlexPayload BuildFlexPayload(FlexCreateConfig config, string subnetId)
     {
-        var payload = new ResourceProvisionFlexPayload(1, BuildFlexProperties())
+        var computerName = BuildWindowsComputerName(config.VmPrefix);
+
+        var payload = new ResourceProvisionFlexPayload(resourceCount: 100, flexProperties: BuildFlexProperties())
         {
             ResourcePrefix = config.VmPrefix,
         };
 
         payload.BaseProfile["resourcegroupName"] = BinaryData.FromString($"\"{config.ResourceGroupName}\"");
         payload.BaseProfile["computeApiVersion"] = BinaryData.FromString("\"2023-09-01\"");
+        payload.BaseProfile["location"] = BinaryData.FromString($"\"{config.Location}\"");
         payload.BaseProfile["properties"] = BinaryData.FromObjectAsJson(new
         {
             hardwareProfile = new { vmSize = "Standard_D2ads_v5" },
+            osProfile = new
+            {
+                computerName = computerName,
+                adminUsername = config.VmAdminUsername,
+                adminPassword = config.VmAdminPassword
+            },
             storageProfile = new
             {
                 imageReference = new
@@ -136,4 +145,37 @@ internal static class FlexRequestBuilder
         {
             CorrelationId = Guid.NewGuid().ToString()
         };
+
+    private static string BuildWindowsComputerName(string prefix)
+    {
+        var filtered = new string(prefix.Where(ch => char.IsLetterOrDigit(ch) || ch == '-').ToArray());
+
+        if (string.IsNullOrWhiteSpace(filtered))
+        {
+            filtered = "vm";
+        }
+
+        var candidate = (filtered + "vm").Trim('-');
+
+        if (candidate.Length > 15)
+        {
+            candidate = candidate[..15].Trim('-');
+        }
+
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            candidate = "vmhost";
+        }
+
+        if (candidate.All(char.IsDigit))
+        {
+            candidate = "vm" + candidate;
+            if (candidate.Length > 15)
+            {
+                candidate = candidate[..15];
+            }
+        }
+
+        return candidate;
+    }
 }
